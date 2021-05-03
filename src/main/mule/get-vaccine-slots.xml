@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<mule xmlns:twilio="http://www.mulesoft.org/schema/mule/twilio" xmlns:compression="http://www.mulesoft.org/schema/mule/compression"
-	xmlns:http="http://www.mulesoft.org/schema/mule/http"
-	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+<mule xmlns:sockets="http://www.mulesoft.org/schema/mule/sockets" xmlns:twilio="http://www.mulesoft.org/schema/mule/twilio"
+	xmlns:compression="http://www.mulesoft.org/schema/mule/compression"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
 http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
 http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
 http://www.mulesoft.org/schema/mule/compression http://www.mulesoft.org/schema/mule/compression/current/mule-compression.xsd
-http://www.mulesoft.org/schema/mule/twilio http://www.mulesoft.org/schema/mule/twilio/current/mule-twilio.xsd">
+http://www.mulesoft.org/schema/mule/twilio http://www.mulesoft.org/schema/mule/twilio/current/mule-twilio.xsd
+http://www.mulesoft.org/schema/mule/sockets http://www.mulesoft.org/schema/mule/sockets/current/mule-sockets.xsd">
 	<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="2f624514-f638-479b-8746-56b6d89a00fe" >
 		<http:request-connection host="cdn-api.co-vin.in" protocol="HTTPS" port="443"/>
 	</http:request-config>
@@ -14,13 +15,7 @@ http://www.mulesoft.org/schema/mule/twilio http://www.mulesoft.org/schema/mule/t
 	<twilio:config name="Twilio_Connector_Config" doc:name="Twilio Connector Config" doc:id="1b1f360e-15b9-4c4e-89ec-4e7716ed6951" >
 		<twilio:account-sid-auth-token-connection username="${twillioUserName}" password="${twillioPassword}" />
 	</twilio:config>
-	<flow name="extractData" doc:id="8ad28474-66d1-441d-bb07-2ff200acc4ea" >
-		<scheduler doc:name="Scheduler" doc:id="8da4a025-0d48-4fb9-9933-438645546150" >
-			<scheduling-strategy >
-				<fixed-frequency frequency="15" timeUnit="MINUTES"/>
-			</scheduling-strategy>
-		</scheduler>
-		<logger level="INFO" doc:name="Logger" doc:id="d97671bc-46b6-4bd7-862d-88c2888204f0" message="Flow Initiated"/>
+	<sub-flow name="get-vaccine-slots" doc:id="ef56abc5-cc76-4d34-98be-1a551768efd7" >
 		<http:request method="GET" doc:name="Request" doc:id="441886ae-7c9d-42c4-886a-74876b104273" config-ref="HTTP_Request_configuration" path="/api/v2/appointment/sessions/public/findByPin">
 			<http:headers><![CDATA[#[output application/java
 ---
@@ -30,10 +25,19 @@ http://www.mulesoft.org/schema/mule/twilio http://www.mulesoft.org/schema/mule/t
 			<http:query-params><![CDATA[#[output application/java
 ---
 {
-	"date" : now() as Date as String{format: "dd-MM-yyyy"},
-	"pincode" : Mule::p('pinCode')
+	"date" : attributes.queryParams.date default (now() as Date as String{format: "dd-MM-yyyy"}),
+	"pincode" : attributes.queryParams.pinCode default Mule::p('pinCode')
 }]]]></http:query-params>
 		</http:request>
+	</sub-flow>
+	<flow name="extractData" doc:id="8ad28474-66d1-441d-bb07-2ff200acc4ea" >
+		<scheduler doc:name="Scheduler" doc:id="8da4a025-0d48-4fb9-9933-438645546150" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="15" timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</scheduler>
+		<logger level="INFO" doc:name="Logger" doc:id="d97671bc-46b6-4bd7-862d-88c2888204f0" message="Flow Initiated"/>
+		<flow-ref doc:name="Flow Reference" doc:id="25f87a2a-a1c0-449e-b8be-66c78eaea015" name="get-vaccine-slots" />
 		<choice doc:name="Choice" doc:id="0a04099c-8b98-4a6f-a098-052f4a8fbd91" >
 			<when expression="#[sizeOf(payload.sessions filter (($.min_age_limit == 18) and $.available_capacity &gt; 0)) &gt; 0]">
 				<logger level="INFO" doc:name="Logger" doc:id="82983d21-0b2d-4c19-b38d-da767dd0f648" message="SLOT AVAILABLE"/>
@@ -65,5 +69,51 @@ output application/x-www-form-urlencoded
 				</ee:transform>
 			</on-error-continue>
 		</error-handler>
+	</flow>
+	<flow name="get-vaccine-slotsFlow" doc:id="aff1902e-1dd6-43f3-a4bb-5051bafee931">
+	<http:listener doc:name="Listener" doc:id="7a245660-62fc-43b4-93f8-9d5c910fef42" config-ref="HTTP_Listener_config" path="/api/getSlots"/>
+		<set-variable value="&lt;tr&gt;&#10;        &lt;td&gt;Pin Code&lt;/td&gt;&#10;        &lt;td&gt;Date&lt;/td&gt;&#10;        &lt;td&gt;Center ID&lt;/td&gt;&#10;        &lt;td&gt;Name&lt;/td&gt;&#10;        &lt;td&gt;State&lt;/td&gt;&#10;        &lt;td&gt;Slots Available&lt;/td&gt;&#10;        &lt;td&gt;Vaccine Type&lt;/td&gt;&#10;        &lt;td&gt;Age Limit&lt;/td&gt;&#10;      &lt;/tr&gt;" doc:name="Set Variable" doc:id="1f92cd9f-94e0-42aa-bf19-fca1ec79d06a" variableName="tr" mimeType="application/xml" />
+	<flow-ref doc:name="Flow Reference" doc:id="327f36df-1bfd-4c42-bd75-f3e528a10c09" name="get-vaccine-slots"/>
+		<ee:transform doc:name="Transform Message" doc:id="75473880-dd78-457d-9045-83c9ad11821e">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/xml
+---
+if ( sizeOf(payload.sessions) > 0 ) html: {
+	h1: "Covid Vaccine Slots Available",
+	body: {
+		table @(border: "1px solid black"): {
+			tr: [vars.tr.tr] ++ (payload.sessions map {
+				td: $.pincode,
+				td: $.date,
+				td: $.center_id,
+				td: $.name,
+				td: $.state_name,
+				td: $.available_capacity,
+				td: $.vaccine,
+				td: $.min_age_limit
+			})
+		}
+	}
+} else  html: {
+	h1: "NO SLOTS AVAILABLE."
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<parse-template doc:name="Parse Template" doc:id="07359df3-8f6f-4939-877d-7f9e9f09537f" outputMimeType="text/html">
+			<content>#[payload]</content>
+		</parse-template>
+		<logger level="INFO" doc:name="Logger" doc:id="893a4ed2-2fc9-4b85-9d6a-207a69c44e09" />
+	</flow>
+	<flow name="call-html-welcome-page" doc:id="234066ca-4197-4c8e-8751-3ee70f27f62c" >
+		<http:listener doc:name="Listener" doc:id="cf7831eb-bc07-4eae-9f5a-581b75de0966" config-ref="HTTP_Listener_config" path="/getCovidVaccineSlots"/>
+		<ee:transform doc:name="Transform Message" doc:id="414f79d6-ef0b-4c12-b689-2fcf3bb0eed7" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="endpoint" ><![CDATA[Mule::p('host') ++ ":" ++ Mule::p('port') ++ Mule::p('path')]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<parse-template doc:name="Parse Template" doc:id="5f808a90-91ec-450d-aaa0-be7c87193a49" location="htmlPage/frontpage.html"/>
 	</flow>
 </mule>

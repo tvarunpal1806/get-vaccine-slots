@@ -43,16 +43,17 @@
             <classifier>mule-plugin</classifier>
         </dependency>
     	<dependency>
-            <groupId>org.mule.connectors</groupId>
-            <artifactId>mule-http-connector</artifactId>
-            <version>1.5.24</version>
-            <classifier>mule-plugin</classifier>
-        </dependency>
-    	<dependency>
             <groupId>com.mulesoft.connectors</groupId>
             <artifactId>mule-twilio-connector</artifactId>
             <version>4.0.0</version>
             <classifier>mule-plugin</classifier>
+        </dependency>
+    	<dependency>
+            <groupId>com.mycompany</groupId>
+            <artifactId>my-ec2-domain</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+            <classifier>mule-domain</classifier>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 
