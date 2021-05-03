@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:twilio="http://www.mulesoft.org/schema/mule/twilio" xmlns:compression="http://www.mulesoft.org/schema/mule/compression"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/compression http://www.mulesoft.org/schema/mule/compression/current/mule-compression.xsd
+http://www.mulesoft.org/schema/mule/twilio http://www.mulesoft.org/schema/mule/twilio/current/mule-twilio.xsd">
+	<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="2f624514-f638-479b-8746-56b6d89a00fe" >
+		<http:request-connection host="cdn-api.co-vin.in" protocol="HTTPS" port="443"/>
+	</http:request-config>
+	<configuration-properties doc:name="Configuration properties" doc:id="6bf694b6-fcdf-4bba-942e-e7f92684bed5" file="property.yaml" />
+	<twilio:config name="Twilio_Connector_Config" doc:name="Twilio Connector Config" doc:id="1b1f360e-15b9-4c4e-89ec-4e7716ed6951" >
+		<twilio:account-sid-auth-token-connection username="${twillioUserName}" password="${twillioPassword}" />
+	</twilio:config>
+	<flow name="extractData" doc:id="8ad28474-66d1-441d-bb07-2ff200acc4ea" >
+		<scheduler doc:name="Scheduler" doc:id="8da4a025-0d48-4fb9-9933-438645546150" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="15" timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</scheduler>
+		<logger level="INFO" doc:name="Logger" doc:id="d97671bc-46b6-4bd7-862d-88c2888204f0" message="Flow Initiated"/>
+		<http:request method="GET" doc:name="Request" doc:id="441886ae-7c9d-42c4-886a-74876b104273" config-ref="HTTP_Request_configuration" path="/api/v2/appointment/sessions/public/findByPin">
+			<http:headers><![CDATA[#[output application/java
+---
+{
+	"Host" : "cdn-api.co-vin.in"
+}]]]></http:headers>
+			<http:query-params><![CDATA[#[output application/java
+---
+{
+	"date" : now() as Date as String{format: "dd-MM-yyyy"},
+	"pincode" : Mule::p('pinCode')
+}]]]></http:query-params>
+		</http:request>
+		<choice doc:name="Choice" doc:id="0a04099c-8b98-4a6f-a098-052f4a8fbd91" >
+			<when expression="#[sizeOf(payload.sessions filter (($.min_age_limit == 18) and $.available_capacity &gt; 0)) &gt; 0]">
+				<logger level="INFO" doc:name="Logger" doc:id="82983d21-0b2d-4c19-b38d-da767dd0f648" message="SLOT AVAILABLE"/>
+				<ee:transform doc:name="Transform Message" doc:id="c3983d0f-88d6-4f05-a64d-519fc1486a9e">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/x-www-form-urlencoded
+---
+{
+	From: Mule::p('fromPhoneNumber'),
+	Body: "Covid Vaccine Slot Avaialble at " ++ (((payload.sessions filter (($.min_age_limit == 18) and $.available_capacity > 0)) map $.name) joinBy  ","),
+	To: Mule::p('toPhoneNumber')
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<twilio:create20100401-accounts-messagesjson-by-account-sid doc:name="Create Message" doc:id="218fdac1-12f9-4d46-9891-d4c315b9c528" config-ref="Twilio_Connector_Config" accountSid='${twillioAccountSID}' />
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Logger" doc:id="bb74e570-324e-44fe-afda-a7ed9912c1ae" message="SLOT NOT AVAILABLE"/>
+			</otherwise>
+		</choice>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="3c869e2f-ac33-463e-8c17-7ba7341b0be0" >
+				<logger level="INFO" doc:name="Logger" doc:id="d80467a2-9e3a-4c8f-bd6c-b2b89895aff4" message="#[error]"/>
+				<ee:transform doc:name="Transform Message" doc:id="d6c1e051-b523-40bc-8260-579a8c968b29" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[error.muleMessage.typedValue]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+</mule>
